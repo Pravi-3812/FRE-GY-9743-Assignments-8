@@ -201,13 +201,12 @@ class ValuationEngineProductRfrSwap(ValuationEngineProduct):
         self.cash_ = (
             self.fixed_leg_sign_ * self.fixed_cash_ + self.floating_leg_sign_ * self.float_cash_
         )
-        # TODO 2a: Set self.annuity_ to the fixed-leg annuity per unit notional.
-        # Use the nonzero fixed coupon and the fixed-leg PV already calculated.
-        raise NotImplementedError("TODO 2a: calculate the fixed-leg annuity")
+        # TODO 2a: annuity per unit notional, A = sum(alpha_i * D_i).
+        # Fixed-leg PV = N * K * A, so A = fixed PV / (N * K).
+        self.annuity_ = self.fixed_value_ / (self.notional_ * self.fixed_rate_)
 
-        # TODO 2b: Set self.par_rate_or_spread_ to the OIS par rate in decimals.
-        # Use the floating-leg PV and the annuity from TODO 2a.
-        raise NotImplementedError("TODO 2b: calculate the OIS par rate")
+        # TODO 2b: par rate = floating-leg PV / (N * A).
+        self.par_rate_or_spread_ = self.float_value_ / (self.notional_ * self.annuity_)
 
     def calculate_first_order_risk(
         self, gradient=None, scaler: float = 1.0, accumulate: bool = False
@@ -238,10 +237,17 @@ class ValuationEngineProductRfrSwap(ValuationEngineProduct):
         local_grad = []
         self.model_.resize_gradient(local_grad)
 
-        # TODO 2c: Accumulate the OIS par-rate gradient with respect to X^I
-        # in local_grad. Apply the quotient rule using both leg engines,
-        # keeping the fixed coupon constant and the model's component order.
-        raise NotImplementedError("TODO 2c: calculate the OIS par-rate gradient")
+        # TODO 2c: par = Float / (N * A) and Fixed = N * K * A, so by the quotient rule
+        #   d(par) = (d(Float) - par * d(N * A)) / (N * A)
+        #          = (d(Float) - (par / K) * d(Fixed)) / (N * A)
+        fixed_grad = []
+        float_grad = []
+        self.fixed_leg_engine_.calculate_first_order_risk(fixed_grad, 1.0, False)
+        self.floating_leg_engine_.calculate_first_order_risk(float_grad, 1.0, False)
+        n_times_a = self.notional_ * self.annuity_
+        par = self.par_rate_or_spread_
+        for i in range(len(local_grad)):
+            local_grad[i] += (float_grad[i] - (par / self.fixed_rate_) * fixed_grad[i]) / n_times_a
 
         return local_grad
 
